@@ -766,6 +766,7 @@ class TestNormalMixture(SeededTest):
         )
 
 
+@pytest.mark.xfail(reason="NormalMixture not refactored yet")
 class TestMixtureVsLatent(SeededTest):
     """This class contains tests that compare a marginal Mixture with a latent indexed Mixture"""
 
@@ -885,6 +886,7 @@ class TestMixtureVsLatent(SeededTest):
         assert_allclose(mix_logp, latent_mix_logp, rtol=rtol)
 
 
+@pytest.mark.xfail(reason="MixtureSameFamily not refactored yet")
 class TestMixtureSameFamily(SeededTest):
     """Tests that used to belong to deprecated `TestMixtureSameFamily`.
 
