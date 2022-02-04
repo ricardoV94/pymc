@@ -38,7 +38,6 @@ jobs:
         # → pytest will run only these files
           - |
             --ignore=pymc/tests/test_distributions_timeseries.py
-            --ignore=pymc/tests/test_mixture.py
             --ignore=pymc/tests/test_model_graph.py
             --ignore=pymc/tests/test_modelcontext.py
             --ignore=pymc/tests/test_parallel_sampling.py
