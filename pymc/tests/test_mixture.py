@@ -339,7 +339,6 @@ class TestMixture(SeededTest):
         assert ppc["like3"].shape == (200, 20)
 
 
-
 @pytest.mark.xfail(reason="NormalMixture not refactored yet")
 class TestNormalMixture(SeededTest):
     @classmethod
