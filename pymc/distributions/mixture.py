@@ -24,7 +24,7 @@ from aesara.tensor import TensorVariable
 from aesara.tensor.random.op import RandomVariable
 
 from pymc.aesaraf import take_along_axis
-from pymc.distributions.continuous import Normal
+from pymc.distributions.continuous import Normal, get_tau_sigma
 from pymc.distributions.dist_math import check_parameters
 from pymc.distributions.distribution import Discrete, Distribution, SymbolicDistribution
 from pymc.distributions.logprob import logp
@@ -391,7 +391,7 @@ def marginal_mixture_logprob(op, values, rng, weights, *components, **kwargs):
     return mix_logp
 
 
-class NormalMixture(Mixture):
+class NormalMixture:
     R"""
     Normal mixture log-likelihood
 
@@ -446,18 +446,20 @@ class NormalMixture(Mixture):
             pm.NormalMixture("y", w=weights, mu=μ, sigma=σ, observed=data)
     """
 
-    def __init__(self, w, mu, sigma=None, tau=None, sd=None, comp_shape=(), *args, **kwargs):
+    def __new__(cls, name, w, mu, sigma=None, tau=None, sd=None, comp_shape=(), **kwargs):
         if sd is not None:
             sigma = sd
         _, sigma = get_tau_sigma(tau=tau, sigma=sigma)
 
-        self.mu = mu = at.as_tensor_variable(mu)
-        self.sigma = self.sd = sigma = at.as_tensor_variable(sigma)
+        return Mixture(name, w, Normal.dist(mu, sigma=sigma, size=comp_shape), **kwargs)
 
-        super().__init__(w, Normal.dist(mu, sigma=sigma, shape=comp_shape), *args, **kwargs)
+    @classmethod
+    def dist(cls, w, mu, sigma=None, tau=None, sd=None, comp_shape=(), **kwargs):
+        if sd is not None:
+            sigma = sd
+        _, sigma = get_tau_sigma(tau=tau, sigma=sigma)
 
-    def _distr_parameters_for_repr(self):
-        return ["w", "mu", "sigma"]
+        return Mixture.dist(w, Normal.dist(mu, sigma=sigma, size=comp_shape), **kwargs)
 
 
 class MixtureSameFamily(Distribution):
