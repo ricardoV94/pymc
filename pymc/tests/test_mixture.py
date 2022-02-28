@@ -677,12 +677,13 @@ class TestNormalMixture(SeededTest):
         )
 
 
-@pytest.mark.xfail(reason="NormalMixture not refactored yet")
 class TestMixtureVsLatent(SeededTest):
+    """This class contains tests that compare a marginal Mixture with a latent indexed Mixture"""
+
     def setup_method(self, *args, **kwargs):
         super().setup_method(*args, **kwargs)
         self.nd = 3
-        self.npop = 3
+        self.npop = 4
         self.mus = at.as_tensor_variable(
             np.tile(
                 np.reshape(
@@ -705,23 +706,25 @@ class TestMixtureVsLatent(SeededTest):
         mus = self.mus
         size = 100
         with Model() as model:
-            m = NormalMixture(
-                "m", w=np.ones(npop) / npop, mu=mus, sigma=1e-5, comp_shape=(nd, npop), shape=nd
+            m = Mixture(
+                "m",
+                w=np.ones(npop) / npop,
+                comp_dists=[MvNormal.dist(mus[:, i], np.eye(nd) * 1e-5**2) for i in range(npop)],
             )
             z = Categorical("z", p=np.ones(npop) / npop)
             latent_m = Normal("latent_m", mu=mus[..., z], sigma=1e-5, shape=nd)
 
-        m_val = m.random(size=size)
-        latent_m_val = latent_m.random(size=size)
+        m_val = draw(m, draws=size)
+        latent_m_val = draw(latent_m, draws=size)
         assert m_val.shape == latent_m_val.shape
         # Test that each element in axis = -1 comes from the same mixture
         # component
-        assert all(np.all(np.diff(m_val) < 1e-3, axis=-1))
-        assert all(np.all(np.diff(latent_m_val) < 1e-3, axis=-1))
-
+        assert np.all(np.diff(m_val) < 1e-3)
+        assert np.all(np.diff(latent_m_val) < 1e-3)
         self.samples_from_same_distribution(m_val, latent_m_val)
         self.logp_matches(m, latent_m, z, npop, model=model)
 
+    @pytest.mark.xfail(reason="Test not refactored yet")
     def test_2d_w(self):
         nd = self.nd
         npop = self.npop
@@ -740,8 +743,8 @@ class TestMixtureVsLatent(SeededTest):
             mu = at.as_tensor_variable([mus[i, z[i]] for i in range(nd)])
             latent_m = Normal("latent_m", mu=mu, sigma=1e-5, shape=nd)
 
-        m_val = m.random(size=size)
-        latent_m_val = latent_m.random(size=size)
+        m_val = draw(m, draws=size)
+        latent_m_val = draw(latent_m, draws=size)
         assert m_val.shape == latent_m_val.shape
         # Test that each element in axis = -1 can come from independent
         # components
@@ -758,19 +761,28 @@ class TestMixtureVsLatent(SeededTest):
         _, p_correlation = st.ks_2samp(
             *(np.array([np.corrcoef(ss) for ss in s]).flatten() for s in args)
         )
-        assert p_marginal >= 0.05 and p_correlation >= 0.05
+        assert p_marginal >= 0.01
+        assert p_correlation >= 0.01
 
     def logp_matches(self, mixture, latent_mix, z, npop, model):
+        def loose_logp(model, vars):
+            """Return logp function that accepts dictionary with unused variables as input"""
+            return model.compile_fn(
+                model.logpt(vars=vars, sum=False),
+                inputs=model.value_vars,
+                on_unused_input="ignore",
+            )
+
         if aesara.config.floatX == "float32":
             rtol = 1e-4
         else:
             rtol = 1e-7
         test_point = model.compute_initial_point()
-        test_point["latent_m"] = test_point["m"]
-        mix_logp = mixture.logp(test_point)
+        test_point["m"] = test_point["latent_m"]
+        mix_logp = loose_logp(model, mixture)(test_point)[0]
         logps = []
         for component in range(npop):
-            test_point["z"] = component * np.ones(z.distribution.shape)
+            test_point["z"] = component * np.ones(z.shape.eval())
             # Count the number of axes that should be broadcasted from z to
             # modify the logp
             sh1 = test_point["z"].shape
@@ -779,10 +791,10 @@ class TestMixtureVsLatent(SeededTest):
                 sh2 = (1,) * (len(sh1) - len(sh2)) + sh2
             elif len(sh2) > len(sh1):
                 sh1 = (1,) * (len(sh2) - len(sh1)) + sh1
-            reps = np.prod([s2 if s1 != s2 else 1 for s1, s2 in zip(sh1, sh2)])
-            z_logp = z.logp(test_point) * reps
-            logps.append(z_logp + latent_mix.logp(test_point))
-        latent_mix_logp = logsumexp(np.array(logps), axis=0)
+            z_logp = loose_logp(model, z)(test_point)[0]
+            latent_mix_logp = loose_logp(model, latent_mix)(test_point)[0].sum()
+            logps.append(z_logp + latent_mix_logp)
+        latent_mix_logp = logsumexp(np.array(logps), axis=0).sum()
         assert_allclose(mix_logp, latent_mix_logp, rtol=rtol)
 
 
