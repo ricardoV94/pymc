@@ -23,7 +23,7 @@ from aesara.compile.builders import OpFromGraph
 from aesara.tensor import TensorVariable
 from aesara.tensor.random.op import RandomVariable
 
-from pymc.aesaraf import change_rv_size, take_along_axis
+from pymc.aesaraf import change_rv_size
 from pymc.distributions.continuous import Normal, get_tau_sigma
 from pymc.distributions.dist_math import check_parameters
 from pymc.distributions.distribution import (
@@ -413,7 +413,9 @@ def get_moment_marginal_mixture(op, rv, rng, weights, *components):
         moment_components = get_moment(components[0])
 
     else:
-        moment_components = at.stack([get_moment(component) for component in components], axis=-ndim_supp-1)
+        moment_components = at.stack(
+            [get_moment(component) for component in components], axis=-ndim_supp - 1
+        )
 
     return at.sum(weights * moment_components, axis=-ndim_supp - 1)
 
@@ -485,129 +487,5 @@ class NormalMixture:
         if sd is not None:
             sigma = sd
         _, sigma = get_tau_sigma(tau=tau, sigma=sigma)
-
-        return Mixture.dist(w, Normal.dist(mu, sigma=sigma, size=comp_shape), **kwargs)
-
-
-class MixtureSameFamily(Distribution):
-    R"""
-    Mixture Same Family log-likelihood
-    This distribution handles mixtures of multivariate distributions in a vectorized
-    manner. It is used over Mixture distribution when the mixture components are not
-    present on the last axis of components' distribution.
-
-    .. math::f(x \mid w, \theta) = \sum_{i = 1}^n w_i f_i(x \mid \theta_i)\textrm{ Along mixture\_axis}
-
-    ========  ============================================
-    Support   :math:`\textrm{support}(f)`
-    Mean      :math:`w\mu`
-    ========  ============================================
-
-    Parameters
-    ----------
-    w: array of floats
-        w >= 0 and w <= 1
-        the mixture weights
-    comp_dists: PyMC distribution (e.g. `pm.Multinomial.dist(...)`)
-        The `comp_dists` can be scalar or multidimensional distribution.
-        Assuming its shape to be - (i_0, ..., i_n, mixture_axis, i_n+1, ..., i_N),
-        the `mixture_axis` is consumed resulting in the shape of mixture as -
-        (i_0, ..., i_n, i_n+1, ..., i_N).
-    mixture_axis: int, default = -1
-        Axis representing the mixture components to be reduced in the mixture.
-
-    Notes
-    -----
-    The default behaviour resembles Mixture distribution wherein the last axis of component
-    distribution is reduced.
-    """
-
-    def __init__(self, w, comp_dists, mixture_axis=-1, *args, **kwargs):
-        self.w = at.as_tensor_variable(w)
-        if not isinstance(comp_dists, Distribution):
-            raise TypeError(
-                "The MixtureSameFamily distribution only accepts Distribution "
-                f"instances as its components. Got {type(comp_dists)} instead."
-            )
-        self.comp_dists = comp_dists
-        if mixture_axis < 0:
-            mixture_axis = len(comp_dists.shape) + mixture_axis
-            if mixture_axis < 0:
-                raise ValueError(
-                    "`mixture_axis` is supposed to be in shape of components' distribution. "
-                    f"Got {mixture_axis + len(comp_dists.shape)} axis instead out of the bounds."
-                )
-        comp_shape = to_tuple(comp_dists.shape)
-        self.shape = comp_shape[:mixture_axis] + comp_shape[mixture_axis + 1 :]
-        self.mixture_axis = mixture_axis
-        kwargs.setdefault("dtype", self.comp_dists.dtype)
-
-        # Compute the mode so we don't always have to pass a initval
-        defaults = kwargs.pop("defaults", [])
-        event_shape = self.comp_dists.shape[mixture_axis + 1 :]
-        _w = at.shape_padleft(
-            at.shape_padright(w, len(event_shape)),
-            len(self.comp_dists.shape) - w.ndim - len(event_shape),
-        )
-        mode = take_along_axis(
-            self.comp_dists.mode,
-            at.argmax(_w, keepdims=True),
-            axis=mixture_axis,
-        )
-        self.mode = mode[(..., 0) + (slice(None),) * len(event_shape)]
-
-        if not all_discrete(comp_dists):
-            mean = at.as_tensor_variable(self.comp_dists.mean)
-            self.mean = (_w * mean).sum(axis=mixture_axis)
-            if "mean" not in defaults:
-                defaults.append("mean")
-        defaults.append("mode")
-
-        super().__init__(defaults=defaults, *args, **kwargs)
-
-    def logp(self, value):
-        """
-        Calculate log-probability of defined ``MixtureSameFamily`` distribution at specified value.
-
-        Parameters
-        ----------
-        value : numeric
-            Value(s) for which log-probability is calculated. If the log probabilities for multiple
-            values are desired the values must be provided in a numpy array or Aesara tensor
-
-        Returns
-        -------
-        TensorVariable
-        """
-
-        comp_dists = self.comp_dists
-        w = self.w
-        mixture_axis = self.mixture_axis
-
-        event_shape = comp_dists.shape[mixture_axis + 1 :]
-
-        # To be able to broadcast the comp_dists.logp with w and value
-        # We first have to pad the shape of w to the right with ones
-        # so that it can broadcast with the event_shape.
-
-        w = at.shape_padright(w, len(event_shape))
-
-        # Second, we have to add the mixture_axis to the value tensor
-        # To insert the mixture axis at the correct location, we use the
-        # negative number index. This way, we can also handle situations
-        # in which, value is an observed value with more batch dimensions
-        # than the ones present in the comp_dists.
-        comp_dists_ndim = len(comp_dists.shape)
-
-        value = at.shape_padaxis(value, axis=mixture_axis - comp_dists_ndim)
-
-        comp_logp = comp_dists.logp(value)
-        return check_parameters(
-            logsumexp(at.log(w) + comp_logp, axis=mixture_axis, keepdims=False),
-            w >= 0,
-            w <= 1,
-            at.allclose(w.sum(axis=mixture_axis - comp_dists_ndim), 1),
-            broadcast_conditions=False,
-        )
 
         return Mixture.dist(w, Normal.dist(mu, sigma=sigma, size=comp_shape), **kwargs)

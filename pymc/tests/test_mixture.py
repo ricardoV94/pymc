@@ -659,17 +659,20 @@ class TestMixture(SeededTest):
             Mixture.dist(w=[0.5, 0.5], comp_dists=[Normal.dist(size=2)])
 
     @pytest.mark.parametrize(
-        "weights",
-        "comp_dists",
-        "size",
-        "expected",
+        "weights, comp_dists, size, expected",
         [
             (
                 np.array([1, 0]),
                 [Normal.dist(-2, 5), Normal.dist(2, 5)],
                 None,
                 -2,
-            )
+            ),
+            (
+                np.array([0.5, 0.5]),
+                [Normal.dist(-2, 5), Normal.dist(2, 5)],
+                None,
+                0,
+            ),
         ],
     )
     def test_mixture_moments(self, weights, comp_dists, size, expected):
@@ -789,7 +792,6 @@ class TestNormalMixture(SeededTest):
         pass
 
 
-@pytest.mark.xfail(reason="NormalMixture not refactored yet")
 class TestMixtureVsLatent(SeededTest):
     """This class contains tests that compare a marginal Mixture with a latent indexed Mixture"""
 
@@ -909,7 +911,6 @@ class TestMixtureVsLatent(SeededTest):
         assert_allclose(mix_logp, latent_mix_logp, rtol=rtol)
 
 
-@pytest.mark.xfail(reason="MixtureSameFamily not refactored yet")
 class TestMixtureSameFamily(SeededTest):
     """Tests that used to belong to deprecated `TestMixtureSameFamily`.
 
