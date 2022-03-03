@@ -406,21 +406,16 @@ def marginal_mixture_logprob(op, values, rng, weights, *components, **kwargs):
 
 @_get_moment.register(MarginalMixtureRV)
 def get_moment_marginal_mixture(op, rv, rng, weights, *components):
+    ndim_supp = components[0].owner.op.ndim_supp
+
     if len(components) == 1:
-        ndim_supp = components[0].owner.op.ndim_supp
-
-        # assuming weights.shape[-1] is the mixing component
-        # trying to expand dimensions by ndim_supp inside out
-        expansion_axes = [-i for i in range(ndim_supp, 0, -1)]
-
+        weights = at.shape_padright(weights, ndim_supp)
         moment_components = get_moment(components[0])
 
-        weights = at.expand_dims(weights, axis=expansion_axes)
-
     else:
-        moment_components = at.stack([get_moment(component) for component in components], axis=-1)
+        moment_components = at.stack([get_moment(component) for component in components], axis=-ndim_supp-1)
 
-    return at.sum(weights * moment_components, axis=-1)
+    return at.sum(weights * moment_components, axis=-ndim_supp - 1)
 
 
 class NormalMixture:

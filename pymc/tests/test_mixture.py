@@ -53,6 +53,7 @@ from pymc.sampling import (
 from pymc.step_methods import Metropolis
 from pymc.tests.helpers import SeededTest
 from pymc.tests.test_distributions import Domain, Simplex
+from pymc.tests.test_distributions_moments import assert_moment_is_expected
 from pymc.tests.test_distributions_random import pymc_random
 
 
@@ -657,6 +658,25 @@ class TestMixture(SeededTest):
         with pytest.warns(UserWarning, match="Single component will be treated as a mixture"):
             Mixture.dist(w=[0.5, 0.5], comp_dists=[Normal.dist(size=2)])
 
+    @pytest.mark.parametrize(
+        "weights",
+        "comp_dists",
+        "size",
+        "expected",
+        [
+            (
+                np.array([1, 0]),
+                [Normal.dist(-2, 5), Normal.dist(2, 5)],
+                None,
+                -2,
+            )
+        ],
+    )
+    def test_mixture_moments(self, weights, comp_dists, size, expected):
+        with Model() as model:
+            Mixture("m", weights, comp_dists, size)
+        assert_moment_is_expected(model, expected)
+
 
 class TestNormalMixture(SeededTest):
     def test_normal_mixture_sampling(self):
@@ -764,6 +784,9 @@ class TestNormalMixture(SeededTest):
             ref_rand=ref_rand,
             change_rv_size_fn=Mixture.change_size,
         )
+
+    def test_normal_mixture_moments(self):
+        pass
 
 
 @pytest.mark.xfail(reason="NormalMixture not refactored yet")
