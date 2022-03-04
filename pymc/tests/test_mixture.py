@@ -748,6 +748,12 @@ class TestMixture(SeededTest):
                 None,
                 2.8,
             ),
+            (
+                np.array([[0.8, 0.2], [0.2, 0.8]]),
+                [Normal.dist(-2, 5), Normal.dist(6, 3)],
+                None,
+                np.array([-0.4, 4.4]),
+            ),
         ],
     )
     def test_mixture_moments(self, weights, comp_dists, size, expected):
@@ -928,6 +934,13 @@ class TestNormalMixture(SeededTest):
                 np.array([1, 1]),
                 (11, 7, 2),
                 np.full(shape=(11, 7), fill_value=2.8),
+            ),
+            (
+                np.array([[0.8, 0.2], [0.2, 0.8]]),
+                np.array([-2, 6]),
+                np.array([1, 1]),
+                None,
+                np.array([-0.4, 4.4]),
             ),
         ],
     )
