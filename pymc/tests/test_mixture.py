@@ -1126,27 +1126,39 @@ class TestMixtureMoments:
         assert_moment_is_expected(model, expected)
 
     @pytest.mark.parametrize(
-        "w, mu, sigma, comp_shape, expected",
+        "weights, comp_dists, size, expected",
         [
             (
-                np.array([1, 0]),
-                np.array([-10, 10]),
-                np.array([1, 1]),
+                np.broadcast_to(np.array([0.4, 0.6]), (5, 3, 2)),
+                Normal.dist(np.array([-2, 6]), np.array([5, 3])),
                 None,
-                -10,
+                np.full(shape=(5, 3), fill_value=2.8),
             ),
             (
                 np.array([0.4, 0.6]),
-                np.array([-2, 6]),
-                np.array([1, 1]),
+                Normal.dist(np.array([-2, 6]), np.array([5, 3]), size=(5, 3, 2)),
                 None,
-                2.8,
+                np.full(shape=(5, 3), fill_value=2.8),
+            ),
+            (
+                np.array([[0.8, 0.2], [0.2, 0.8]]),
+                Normal.dist(np.array([-2, 6])),
+                None,
+                np.array([-0.4, 4.4]),
+            ),
+            (
+                np.array([0.4, 0.6]),
+                Normal.dist(np.array([-2, 6]), np.array([5, 3]), size=(11, 7, 2)),
+                (5, 3),
+                np.full(shape=(5, 3), fill_value=2.8),
             ),
         ],
     )
-    def test_univariate_normal_mixture_moments(self, w, mu, sigma, comp_shape, expected):
+    def test_broadcasted_single_component_mixture_moments(
+        self, weights, comp_dists, size, expected
+    ):
         with Model() as model:
-            NormalMixture("x", w, mu, sigma, comp_shape=comp_shape)
+            Mixture("x", weights, comp_dists, size=size)
         assert_moment_is_expected(model, expected)
 
     @pytest.mark.parametrize(

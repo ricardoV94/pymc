@@ -408,16 +408,17 @@ def marginal_mixture_logprob(op, values, rng, weights, *components, **kwargs):
 def get_moment_marginal_mixture(op, rv, rng, weights, *components):
     ndim_supp = components[0].owner.op.ndim_supp
     weights = at.shape_padright(weights, ndim_supp)
+    mix_axis = -ndim_supp - 1
 
     if len(components) == 1:
         moment_components = get_moment(components[0])
 
     else:
         moment_components = at.stack(
-            [get_moment(component) for component in components], axis=-ndim_supp - 1
+            [get_moment(component) for component in components], axis=mix_axis
         )
 
-    return at.sum(weights * moment_components, axis=-ndim_supp - 1)
+    return at.sum(weights * moment_components, axis=mix_axis)
 
 
 class NormalMixture:
