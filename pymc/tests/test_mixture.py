@@ -918,7 +918,6 @@ class TestNormalMixture(SeededTest):
                         7,
                         5,
                         3,
-                        2,
                     ),
                     fill_value=2.8,
                 ),
