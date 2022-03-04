@@ -663,21 +663,68 @@ class TestMixture(SeededTest):
         [
             (
                 np.array([1, 0]),
-                [Normal.dist(-2, 5), Normal.dist(2, 5)],
+                [Normal.dist(-2, 5), Normal.dist(6, 3)],
                 None,
                 -2,
             ),
             (
-                np.array([0.5, 0.5]),
-                [Normal.dist(-2, 5), Normal.dist(2, 5)],
+                np.array([0.4, 0.6]),
+                [Normal.dist(-2, 5), Normal.dist(6, 3)],
                 None,
-                0,
+                2.8,
+            ),
+            (
+                np.array([0.5, 0.5]),
+                [Normal.dist(-2, 5), Exponential.dist(lam=1 / 3)],
+                None,
+                0.5,
+            ),
+            (
+                np.broadcast_to(np.array([0.4, 0.6]), (5, 3, 2)),
+                [Normal.dist(-2, 5), Normal.dist(6, 3)],
+                None,
+                np.full(shape=(5, 3), fill_value=2.8),
+            ),
+            (
+                np.array([0.4, 0.6]),
+                [Normal.dist(-2, 5), Normal.dist(6, 3)],
+                (3,),
+                np.full(shape=(3,), fill_value=2.8),
+            ),
+            (
+                np.array([0.4, 0.6]),
+                [Normal.dist(-2, 5), Normal.dist(6, 3)],
+                (11, 7),
+                np.full(shape=(11, 7), fill_value=2.8),
+            ),
+            (
+                np.array([0.4, 0.6]),
+                Normal.dist(mu=np.array([-2, 6]), sigma=np.array([5, 3])),
+                None,
+                2.8,
+            ),
+            (
+                np.tile(1/13, 13),
+                Normal.dist(-2, 1, size=(13,)),
+                None,
+                -2,
+            ),
+            (
+                np.array([0.4, 0.6]),
+                [
+                    MvNormal.dist(mu=np.array([-1, -2]), cov=np.eye(2) * 0.3),
+                    MvNormal.dist(mu=np.array([3, 5]), cov=np.eye(2) * 0.8),
+                ],
+                None,  # support not yet available for batched multivariate distributions
+                np.array(
+                    [1.4, 2.2],
+                ),
             ),
         ],
     )
     def test_mixture_moments(self, weights, comp_dists, size, expected):
         with Model() as model:
-            Mixture("m", weights, comp_dists, size)
+            Mixture("x", weights, comp_dists, size=size)
         assert_moment_is_expected(model, expected)
 
 
@@ -788,7 +835,7 @@ class TestNormalMixture(SeededTest):
             change_rv_size_fn=Mixture.change_size,
         )
 
-    def test_normal_mixture_moments(self):
+    def test_normal_mixture_moments(self, w, mu, sigma):
         pass
 
 

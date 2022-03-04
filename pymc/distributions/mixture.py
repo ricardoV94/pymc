@@ -407,9 +407,9 @@ def marginal_mixture_logprob(op, values, rng, weights, *components, **kwargs):
 @_get_moment.register(MarginalMixtureRV)
 def get_moment_marginal_mixture(op, rv, rng, weights, *components):
     ndim_supp = components[0].owner.op.ndim_supp
+    weights = at.shape_padright(weights, ndim_supp)
 
     if len(components) == 1:
-        weights = at.shape_padright(weights, ndim_supp)
         moment_components = get_moment(components[0])
 
     else:
