@@ -687,6 +687,12 @@ class TestMixture(SeededTest):
             ),
             (
                 np.array([0.4, 0.6]),
+                [Normal.dist(-2, 5, size=(5, 3)), Normal.dist(6, 3, size=(5, 3))],
+                None,
+                np.full(shape=(5, 3), fill_value=2.8),
+            ),
+            (
+                np.array([0.4, 0.6]),
                 [Normal.dist(-2, 5), Normal.dist(6, 3)],
                 (3,),
                 np.full(shape=(3,), fill_value=2.8),
@@ -698,13 +704,29 @@ class TestMixture(SeededTest):
                 np.full(shape=(11, 7), fill_value=2.8),
             ),
             (
+                # only one to fail, maybe due to https://github.com/ricardoV94/pymc/blob/mixtures/pymc/distributions/mixture.py#L212
+                # I'm not sure...
+                np.array([0.4, 0.6]),
+                [Normal.dist(-2, 5, size=(11, 7)), Normal.dist(6, 3, size=(11, 7))],
+                (5, 3),
+                np.full(
+                    shape=(
+                        11,
+                        7,
+                        5,
+                        3,
+                    ),
+                    fill_value=2.8,
+                ),
+            ),
+            (
                 np.array([0.4, 0.6]),
                 Normal.dist(mu=np.array([-2, 6]), sigma=np.array([5, 3])),
                 None,
                 2.8,
             ),
             (
-                np.tile(1/13, 13),
+                np.tile(1 / 13, 13),
                 Normal.dist(-2, 1, size=(13,)),
                 None,
                 -2,
@@ -719,6 +741,12 @@ class TestMixture(SeededTest):
                 np.array(
                     [1.4, 2.2],
                 ),
+            ),
+            (
+                np.array([0.4, 0.6]),
+                Normal.dist([-2, 6], 3),
+                None,
+                2.8,
             ),
         ],
     )
@@ -835,8 +863,79 @@ class TestNormalMixture(SeededTest):
             change_rv_size_fn=Mixture.change_size,
         )
 
-    def test_normal_mixture_moments(self, w, mu, sigma):
-        pass
+    @pytest.mark.parametrize(
+        "w, mu, sigma, comp_shape, expected",
+        [
+            (
+                np.array([1, 0]),
+                np.array([-10, 10]),
+                np.array([1, 1]),
+                None,
+                -10,
+            ),
+            (
+                np.array([0.4, 0.6]),
+                np.array([-2, 6]),
+                np.array([1, 1]),
+                None,
+                2.8,
+            ),
+            (
+                np.broadcast_to(np.array([0.4, 0.6]), (5, 3, 2)),
+                np.array([-2, 6]),
+                np.array([1, 1]),
+                None,
+                np.full(shape=(5, 3), fill_value=2.8),
+            ),
+            (
+                np.array([0.4, 0.6]),
+                np.broadcast_to(np.array([-2, 6]), (5, 3, 2)),
+                np.array([1, 1]),
+                None,
+                np.full(shape=(5, 3), fill_value=2.8),
+            ),
+            (
+                np.array([0.4, 0.6]),
+                np.array([-2, 6]),
+                np.broadcast_to(np.array([1, 1]), (5, 3, 2)),
+                None,
+                np.full(
+                    shape=(
+                        5,
+                        3,
+                    ),
+                    fill_value=2.8,
+                ),
+            ),
+            (
+                np.array([0.4, 0.6]),
+                np.broadcast_to(np.array([-2, 6]), (5, 3, 2)),
+                np.array([1, 1]),
+                (11, 7),
+                np.full(
+                    shape=(
+                        11,
+                        7,
+                        5,
+                        3,
+                        2,
+                    ),
+                    fill_value=2.8,
+                ),
+            ),
+            (
+                np.array([0.4, 0.6]),
+                np.array([-2, 6]),
+                np.array([1, 1]),
+                (11, 7, 2),
+                np.full(shape=(11, 7), fill_value=2.8),
+            ),
+        ],
+    )
+    def test_normal_mixture_moments(self, w, mu, sigma, comp_shape, expected):
+        with Model() as model:
+            NormalMixture("x", w, mu, sigma, comp_shape=comp_shape)
+        assert_moment_is_expected(model, expected)
 
 
 class TestMixtureVsLatent(SeededTest):
