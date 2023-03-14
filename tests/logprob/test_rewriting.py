@@ -40,6 +40,7 @@ import pytensor.tensor as pt
 import pytest
 import scipy.stats.distributions as sp
 
+from pytensor.graph.basic import equal_computations
 from pytensor.graph.rewriting.basic import in2out
 from pytensor.graph.rewriting.utils import rewrite_graph
 from pytensor.tensor.elemwise import DimShuffle, Elemwise
@@ -50,7 +51,11 @@ from pytensor.tensor.subtensor import (
     Subtensor,
 )
 
-from pymc.logprob.rewriting import local_lift_DiracDelta
+from pymc.logprob.rewriting import (
+    MeasurablePatternNodeRewriter,
+    PreserveRVMappings,
+    local_lift_DiracDelta,
+)
 from pymc.logprob.utils import DiracDelta, dirac_delta
 from tests.logprob.utils import joint_logprob
 
@@ -129,3 +134,98 @@ def test_joint_logprob_incsubtensor(indices, size):
     exp_obs_logps = sp.norm.logpdf(y_val_idx, mu, sigma)
 
     np.testing.assert_almost_equal(obs_logps, exp_obs_logps)
+
+
+rv_args = ("rng", "dtype", "size")
+
+
+class TestMeasurablePatternNodeRewriter:
+    def test_basic(self):
+        test_pattern = MeasurablePatternNodeRewriter(
+            (pt.exp, (pt.log, "x")),
+            (pt.cos, "x"),
+        )
+
+        zero = pt.constant(0.0)
+        x = pt.exp(pt.log(zero))
+
+        fgraph = pytensor.graph.FunctionGraph(outputs=[x])
+        [res] = test_pattern.transform(fgraph, fgraph.outputs[0].owner)
+        expected_res = pt.cos(zero)
+        assert equal_computations([res], [expected_res])
+
+    def test_random(self):
+        test_pattern = MeasurablePatternNodeRewriter(
+            (pt.exp, (pt.random.normal, *rv_args, (pt.abs, "mu"), "sigma")),
+            (pt.random.lognormal, *rv_args, (pt.abs, (pt.neg, "mu")), "sigma"),
+        )
+
+        rng = pytensor.shared(np.random.default_rng())
+        mu, sigma = pt.scalars("mu", "sigma")
+
+        x = pt.exp(pt.random.normal(mu, sigma, rng=rng))
+        fgraph = pytensor.graph.FunctionGraph(outputs=[x], clone=False)
+        res = test_pattern.transform(fgraph, fgraph.outputs[0].owner)
+        assert res is False
+
+        x = pt.exp(pt.random.normal(pt.abs(mu), sigma, rng=rng))
+        fgraph = pytensor.graph.FunctionGraph(outputs=[x], clone=False)
+        [res] = test_pattern.transform(fgraph, fgraph.outputs[0].owner)
+        expected_res = pt.random.lognormal(pt.abs(pt.neg(mu)), sigma, rng=rng)
+        assert equal_computations([res], [expected_res])
+
+    def test_intermediate_value_variable_protected(self):
+        test_pattern = MeasurablePatternNodeRewriter(
+            (pt.exp, (pt.random.normal, *rv_args, "mu", "sigma")),
+            (pt.random.lognormal, *rv_args, "mu", "sigma"),
+        )
+
+        x = pt.random.normal()
+        y = pt.random.normal(x)
+        z = pt.exp(y)
+
+        fgraph = pytensor.graph.FunctionGraph(
+            outputs=[x, z],
+            clone=False,
+            # z is just a deterministic transformation of y, we don't want to rewrite it!
+            features=[PreserveRVMappings({x: x.type(), y: y.type()})],
+        )
+        res = test_pattern.transform(fgraph, fgraph.outputs[-1].owner)
+        assert res is False
+
+        fgraph = pytensor.graph.FunctionGraph(
+            outputs=[x, z],
+            clone=False,
+            # z is now a measurable transformation, because y is not valued
+            features=[PreserveRVMappings({x: x.type(), z: z.type()})],
+        )
+        [res] = test_pattern.transform(fgraph, fgraph.outputs[-1].owner)
+        assert res.owner.op == pt.random.lognormal
+
+    def test_intermediate_vars_multiple_clients(self):
+        test_pattern = MeasurablePatternNodeRewriter(
+            (pt.exp, (pt.random.normal, *rv_args, "mu", "sigma")),
+            (pt.random.lognormal, *rv_args, "mu", "sigma"),
+        )
+
+        x = pt.random.normal()
+        x_cl = pt.random.normal(x)
+        y = pt.random.normal(x)
+        y_cl = pt.random.normal(y)
+        y_target = pt.exp(y)
+
+        fgraph = pytensor.graph.FunctionGraph(
+            # y has two clients, so rewrite can't be applied
+            outputs=[x, x_cl, y, y_cl, y_target],
+            clone=False,
+        )
+        res = test_pattern.transform(fgraph, fgraph.outputs[-1].owner)
+        assert res is False
+
+        fgraph = pytensor.graph.FunctionGraph(
+            # Now it's fine
+            outputs=[x, x_cl, y, y_target],
+            clone=False,
+        )
+        [res] = test_pattern.transform(fgraph, fgraph.outputs[-1].owner)
+        assert res.owner.op == pt.random.lognormal

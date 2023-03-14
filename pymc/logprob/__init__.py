@@ -46,6 +46,7 @@ import pymc.logprob.mixture
 import pymc.logprob.scan
 import pymc.logprob.tensor
 import pymc.logprob.transforms
+import pymc.logprob.random
 
 # isort: on
 

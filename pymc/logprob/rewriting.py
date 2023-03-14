@@ -38,11 +38,17 @@ from typing import Dict, Optional, Tuple
 
 import pytensor.tensor as pt
 
+from etuples.core import ExpressionTuple
 from pytensor.compile.mode import optdb
-from pytensor.graph.basic import Variable
+from pytensor.graph import Op
+from pytensor.graph.basic import Variable, vars_between
 from pytensor.graph.features import Feature
 from pytensor.graph.fg import FunctionGraph
-from pytensor.graph.rewriting.basic import GraphRewriter, node_rewriter
+from pytensor.graph.rewriting.basic import (
+    GraphRewriter,
+    PatternNodeRewriter,
+    node_rewriter,
+)
 from pytensor.graph.rewriting.db import EquilibriumDB, RewriteDatabaseQuery, SequenceDB
 from pytensor.tensor.elemwise import DimShuffle, Elemwise
 from pytensor.tensor.extra_ops import BroadcastTo
@@ -58,6 +64,7 @@ from pytensor.tensor.subtensor import (
     Subtensor,
 )
 from pytensor.tensor.var import TensorVariable
+from unification import reify, unify
 
 from pymc.logprob.abstract import MeasurableVariable
 from pymc.logprob.utils import DiracDelta, indices_from_subtensor
@@ -254,6 +261,13 @@ logprob_rewrites_db = SequenceDB()
 logprob_rewrites_db.name = "logprob_rewrites_db"
 logprob_rewrites_db.register("pre-canonicalize", optdb.query("+canonicalize"), "basic")
 
+# These rewrites convert operations on random variables into random variables
+# This is sometimes all that's needed to make graphs measurable
+random_variables_rewrites_db = NoCallbackEquilibriumDB()
+random_variables_rewrites_db.name = "random_variables_rewrites_db"
+
+logprob_rewrites_db.register("random_variables_rewrites", random_variables_rewrites_db, "basic")
+
 # These rewrites convert un-measurable variables into their measurable forms,
 # but they need to be reapplied, because some of the measurable forms require
 # their inputs to be measurable.
@@ -351,3 +365,74 @@ def construct_ir_fgraph(
         fgraph.replace_all(new_to_old)
 
     return fgraph, rv_values, memo
+
+
+class MeasurableExpressionTuple(ExpressionTuple):
+    def _eval_apply_fn(self, op):
+        # Use make_node to eval PyTensor Ops, not __call__
+        if isinstance(op, Op):
+
+            def eval_op(*inputs, **kwargs):
+                node = op.make_node(*inputs, **kwargs)
+                if node.nout == 1:
+                    return node.outputs[0]
+                elif op.default_output:
+                    return node.default_output()
+                else:
+                    return node.outputs
+
+            return eval_op
+        else:
+            return op
+
+
+class MeasurablePatternNodeRewriter(PatternNodeRewriter):
+    def transform(self, fgraph, node, get_nodes=True):
+        """Check if the graph from node corresponds to ``in_pattern``.
+
+        If it does, it constructs ``out_pattern`` and performs the replacement.
+
+        """
+        if get_nodes and self.get_nodes is not None:
+            for real_node in self.get_nodes(fgraph, node):
+                if real_node == "output":
+                    continue
+                ret = self.transform(fgraph, real_node, get_nodes=False)
+                if ret is not False and ret is not None:
+                    return dict(zip(real_node.outputs, ret))
+
+        if node.op != self.op:
+            return False
+
+        s = unify(self.in_pattern, node.out)
+
+        if s is False:
+            return False
+
+        ret = reify(self.out_pattern, s)
+
+        if isinstance(ret, ExpressionTuple):
+            ret = MeasurableExpressionTuple(ret._tuple)
+            ret = ret.evaled_obj
+
+        # Check intermediate variables
+        preserve_rv_mappings: Optional[PreserveRVMappings] = getattr(
+            fgraph, "preserve_rv_mappings", None
+        )
+        if preserve_rv_mappings:
+            rv_values = preserve_rv_mappings.rv_values
+        else:
+            rv_values = {}
+
+        inputs = set(s.values())
+        boundary_vars = set(node.outputs) | inputs
+        for var in (v for v in vars_between(inputs, node.outputs) if v not in boundary_vars):
+            # None should be valued
+            if var in rv_values:
+                return False
+
+            # None should have multiple clients
+            if len([c for c, _ in fgraph.clients[var] if c != "output"]) > 1:
+                return False
+
+        return [ret]
