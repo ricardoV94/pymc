@@ -41,6 +41,7 @@ import pytest
 import scipy.stats.distributions as sp
 
 from pytensor import function
+from pytensor.graph import RewriteDatabaseQuery
 from pytensor.graph.basic import Variable, equal_computations
 from pytensor.ifelse import ifelse
 from pytensor.tensor.random.basic import CategoricalRV
@@ -52,10 +53,15 @@ from pytensor.tensor.subtensor import (
     as_index_constant,
 )
 
-from pymc.logprob.abstract import MeasurableVariable
+from pymc.logprob.abstract import MeasurableVariable, _logprob_helper
 from pymc.logprob.basic import factorized_joint_logprob, logp
-from pymc.logprob.mixture import MeasurableSwitchMixture, MixtureRV, expand_indices
-from pymc.logprob.rewriting import construct_ir_fgraph
+from pymc.logprob.mixture import (
+    MeasurableLazySwitchMixture,
+    MeasurableSwitchMixture,
+    MixtureRV,
+    expand_indices,
+)
+from pymc.logprob.rewriting import construct_ir_fgraph, logprob_rewrites_db
 from pymc.logprob.utils import dirac_delta
 from pymc.testing import assert_no_rvs
 from tests.logprob.utils import scipy_logprob
@@ -928,7 +934,8 @@ def test_scalar_switch_mixture():
 
 
 @pytest.mark.parametrize("switch_cond_scalar", (True, False))
-def test_switch_mixture_vector(switch_cond_scalar):
+@pytest.mark.parametrize("lazy_switch", (True, False))
+def test_switch_mixture_vector(switch_cond_scalar, lazy_switch):
     if switch_cond_scalar:
         switch_cond = pt.scalar("switch_cond", dtype=bool)
     else:
@@ -939,7 +946,21 @@ def test_switch_mixture_vector(switch_cond_scalar):
     switch = pt.switch(switch_cond, true_branch, false_branch)
     switch.name = "switch_mix"
     switch_value = switch.clone()
-    switch_logp = logp(switch, switch_value)
+
+    if lazy_switch:
+        ir_rewriter = logprob_rewrites_db.query(
+            RewriteDatabaseQuery(include=["basic"]).excluding("find_measurable_lazy_switch_mixture")
+        )
+        expected_op = MeasurableLazySwitchMixture
+    else:
+        ir_rewriter = None
+        expected_op = MeasurableSwitchMixture
+
+    ir_fgraph, *_ = construct_ir_fgraph({switch: switch_value}, ir_rewriter=ir_rewriter)
+    measurable_switch = ir_fgraph.outputs[0]
+    assert isinstance(measurable_switch.owner.op, expected_op)
+
+    switch_logp = _logprob_helper(measurable_switch, switch_value)
 
     if switch_cond_scalar:
         test_switch_cond = np.array(0, dtype=bool)
