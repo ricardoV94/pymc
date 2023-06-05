@@ -15,6 +15,7 @@ from typing import Optional
 
 from pytensor import tensor as pt
 from pytensor.graph import node_rewriter
+from pytensor.tensor import broadcast_arrays
 from pytensor.tensor.elemwise import Elemwise
 from pytensor.tensor.random.rewriting import local_subtensor_rv_lift
 from pytensor.tensor.rewriting.subtensor import local_subtensor_lift
@@ -74,7 +75,7 @@ def incsubtensor_rv_replace(fgraph, node):
 
 
 @node_rewriter(subtensor_ops)
-def subtensor_lift(fgraph, node):
+def elemwise_subtensor_lift(fgraph, node):
     """Lift subtensor Ops through Elemwise operations"""
     rv_map_feature: Optional[PreserveRVMappings] = getattr(fgraph, "preserve_rv_mappings", None)
 
@@ -82,37 +83,58 @@ def subtensor_lift(fgraph, node):
         return None  # pragma: no cover
 
     op = node.op
-    base_rv_var, *raw_indices = node.inputs
+    base_var, *raw_indices = node.inputs
 
     # Don't lift through valued RVs
-    if base_rv_var in rv_map_feature.rv_values:
+    if base_var in rv_map_feature.rv_values:
         return None
 
-    if not isinstance(base_rv_var.owner.op, Elemwise):
+    base_node = base_var.owner
+    if not isinstance(base_node.op, Elemwise):
         return None
 
     indices = indices_from_subtensor(getattr(node.op, "idx_list", None), raw_indices)
     # Only allow slice or boolean AdvancedSubtensors (integers can broadcast)
-    # TODO: We could
+    # TODO: We could allow scalar integers
     if isinstance(op, (AdvancedSubtensor, AdvancedSubtensor1)) and any(index.dtype == int for index in indices):
         return None
 
+    non_scalar_input_idxs = [idx for idx, inp in enumerate(base_node.inputs) if any(s != 1 for s in inp.type.shape)]
+    if not non_scalar_input_idxs:
+        # If there are no non_scalar_inputs, pass the index to the first input
+        non_scalar_input_idxs = [0]
+        bcast_inputs = [base_node.inputs[0]]
+    elif len(non_scalar_input_idxs) == 1:
+        bcast_inputs = [base_node.inputs[non_scalar_input_idxs[0]]]
+    else:
+        bcast_inputs = broadcast_arrays(
+            *(
+                inp for idx, inp in enumerate(base_node.inputs)
+                if idx in non_scalar_input_idxs
+            )
+        )
 
+    new_inputs = []
+    bcast_input_idx = 0
+    for idx, inp in enumerate(base_node.inputs):
+        # We pass the index to the bcast inputs only
+        if idx in non_scalar_input_idxs:
+            bcast_inp = bcast_inputs[bcast_input_idx]
+            # If the input was not actually broadcasted, use the original one
+            if inp.type.broadcastable == bcast_inp.type.broadcastable:
+                bcast_inp = inp
+            new_inputs.append(bcast_inp[indices])
+            bcast_input_idx += 1
+        # Others are squeezed
+        else:
+            new_inputs.append(pt.squeeze(inp))
 
-    # Create a new value variable with the raw_indices `idx` set to `data`
-    value_var = rv_map_feature.rv_values[rv_var]
-    new_value_var = pt.set_subtensor(value_var[idx], data)
-    rv_map_feature.update_rv_maps(rv_var, new_value_var, base_rv_var)
-
-    # Return the `RandomVariable` being indexed
-    return [base_rv_var]
-
-
+    return base_node.op.make_node(*new_inputs).outputs
 
 
 # These rewrites push random/measurable variables "down", making them closer to
 # (or eventually) the graph outputs.  Often this is done by lifting other `Op`s
 # "up" through the random/measurable variables and into their inputs.
-measurable_ir_rewrites_db.register("unary_subtensor_lift", local_subtensor_lift, "basic")
+measurable_ir_rewrites_db.register("elemwise_subtensor_lift", elemwise_subtensor_lift, "basic")
 measurable_ir_rewrites_db.register("rv_subtensor_lift", local_subtensor_rv_lift, "basic")
 measurable_ir_rewrites_db.register("incsubtensor_lift", incsubtensor_rv_replace, "basic")

@@ -112,6 +112,9 @@ def logp(
         return _logprob_helper(rv, value, **kwargs)
     except NotImplementedError:
         fgraph, _, _ = construct_ir_fgraph({rv: value})
+        import pytensor
+        print("")
+        pytensor.dprint(fgraph)
         [(ir_rv, ir_value)] = fgraph.preserve_rv_mappings.rv_values.items()
         expr = _logprob_helper(ir_rv, ir_value, **kwargs)
         cleanup_ir([expr])

@@ -48,7 +48,7 @@ from pytensor.graph.rewriting.basic import (
     pre_greedy_node_rewriter,
 )
 from pytensor.ifelse import IfElse, ifelse
-from pytensor.scalar import Switch, as_common_dtype
+from pytensor.scalar import Switch, upcast
 from pytensor.scalar import switch as scalar_switch
 from pytensor.tensor import broadcast_arrays
 from pytensor.tensor.basic import Join, MakeVector, switch
@@ -471,9 +471,9 @@ class MeasurableLazySwitchMixture(Op):
     """A placeholder used to specify a log-likelihood for a mixture sub-graph."""
 
     def make_node(self, switch_cond, subt_comp_true, subt_comp_false):
-        out_dtype = as_common_dtype(subt_comp_true, subt_comp_false)
+        out_dtype = upcast(subt_comp_true.dtype, subt_comp_false.dtype)
         out_shape = switch_cond.type.shape
-        output_type = tensor(dtype=out_dtype, shape=out_shape)()
+        output_type = tensor(dtype=out_dtype, shape=out_shape)
         return Apply(self, [switch_cond, subt_comp_true, subt_comp_false], [output_type])
 
     def do_constant_folding(self, fgraph: "FunctionGraph", node: Apply) -> bool:

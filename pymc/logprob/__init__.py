@@ -44,8 +44,10 @@ import pymc.logprob.cumsum
 import pymc.logprob.checks
 import pymc.logprob.mixture
 import pymc.logprob.scan
+import pymc.logprob.subtensor
 import pymc.logprob.tensor
 import pymc.logprob.transforms
+
 
 # isort: on
 

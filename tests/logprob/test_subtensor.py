@@ -22,6 +22,7 @@ from pytensor.tensor.subtensor import (
 )
 from scipy.stats import distributions as sp
 
+from pymc import logp
 from pymc.logprob import factorized_joint_logprob
 
 
@@ -61,3 +62,27 @@ def test_measurable_incsubtensor(indices, size):
     exp_obs_logps = sp.norm.logpdf(y_val_idx, mu, sigma)
 
     np.testing.assert_almost_equal(obs_logps, exp_obs_logps)
+
+
+def test_subtensor():
+    rv_shape = (5, 3, 2)
+    mu = np.arange(np.prod(rv_shape)).reshape(rv_shape)
+    x = pt.random.normal(mu, size=rv_shape)
+    y = pt.vector("y")
+    z = pt.scalar("z")
+    indices = pt.tensor3("mask", dtype=bool)
+
+    underlying_rv = pt.exp(pt.add(x, y, z))
+    subtensor_rv = underlying_rv[indices]
+    subtensor_vv = subtensor_rv.clone()
+    subtensor_logp = logp(subtensor_rv, subtensor_vv)
+
+    test_y = np.linspace(1.7, 2.5, rv_shape[-1])
+    test_z = 0.3
+    test_indices = np.random.binomial(n=1, p=0.5, size=rv_shape).astype(bool)
+    test_underlying_vv = np.zeros(rv_shape)
+    test_subtensor_vv = test_underlying_vv[test_indices]
+    np.testing.assert_almost_equal(
+        subtensor_logp.eval({y: test_y, z: test_z, subtensor_vv: test_subtensor_vv, indices: test_indices}),
+        logp(underlying_rv, test_underlying_vv).eval({y: test_y, z: test_z})[test_indices],
+    )

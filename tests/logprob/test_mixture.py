@@ -956,7 +956,8 @@ def test_switch_mixture_vector(switch_cond_scalar, lazy_switch):
         )
         expected_op = MeasurableSwitchMixture
 
-    ir_fgraph, *_ = construct_ir_fgraph({switch: switch_value}, ir_rewriter=ir_rewriter)
+    with pytensor.config.change_flags(optimizer_verbose=True):
+        ir_fgraph, *_ = construct_ir_fgraph({switch: switch_value}, ir_rewriter=ir_rewriter)
     measurable_switch = ir_fgraph.outputs[0]
     assert isinstance(measurable_switch.owner.op, expected_op)
 
