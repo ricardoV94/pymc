@@ -42,10 +42,15 @@ import pytensor.tensor as pt
 from pytensor.graph.basic import Apply, Constant, Variable
 from pytensor.graph.fg import FunctionGraph
 from pytensor.graph.op import Op, compute_test_value
-from pytensor.graph.rewriting.basic import node_rewriter, pre_greedy_node_rewriter
+from pytensor.graph.rewriting.basic import (
+    node_rewriter,
+    out2in,
+    pre_greedy_node_rewriter,
+)
 from pytensor.ifelse import IfElse, ifelse
-from pytensor.scalar import Switch
+from pytensor.scalar import Switch, as_common_dtype
 from pytensor.scalar import switch as scalar_switch
+from pytensor.tensor import broadcast_arrays
 from pytensor.tensor.basic import Join, MakeVector, switch
 from pytensor.tensor.random.rewriting import (
     local_dimshuffle_rv_lift,
@@ -60,7 +65,7 @@ from pytensor.tensor.subtensor import (
     get_canonical_form_slice,
     is_basic_idx,
 )
-from pytensor.tensor.type import TensorType
+from pytensor.tensor.type import TensorType, tensor
 from pytensor.tensor.type_other import NoneConst, NoneTypeT, SliceConstant, SliceType
 from pytensor.tensor.var import TensorVariable
 
@@ -74,6 +79,7 @@ from pymc.logprob.rewriting import (
     PreserveRVMappings,
     assume_measured_ir_outputs,
     local_lift_DiracDelta,
+    logprob_rewrites_db,
     measurable_ir_rewrites_db,
     subtensor_ops,
 )
@@ -461,6 +467,52 @@ def logprob_switch_mixture(op, values, switch_cond, component_true, component_fa
     )
 
 
+class MeasurableLazySwitchMixture(Op):
+    """A placeholder used to specify a log-likelihood for a mixture sub-graph."""
+
+    def make_node(self, switch_cond, subt_comp_true, subt_comp_false):
+        out_dtype = as_common_dtype(subt_comp_true, subt_comp_false)
+        out_shape = switch_cond.type.shape
+        output_type = tensor(dtype=out_dtype, shape=out_shape)()
+        return Apply(self, [switch_cond, subt_comp_true, subt_comp_false], [output_type])
+
+    def do_constant_folding(self, fgraph: "FunctionGraph", node: Apply) -> bool:
+        False
+
+    def perform(self, node, inputs, outputs):
+        raise NotImplementedError("This is a stand-in Op.")  # pragma: no cover
+
+
+measurable_lazy_switch_mixture = MeasurableLazySwitchMixture()
+
+
+@node_rewriter(tracks=[MeasurableSwitchMixture])
+def find_measurable_lazy_switch_mixture(fgraph, node):
+    """Try to replace MeasurableMixtures by a lazy version,
+    which will only evaluate the relevant entries of each branch.
+    """
+    rv_map_feature: Optional[PreserveRVMappings] = getattr(fgraph, "preserve_rv_mappings", None)
+
+    if rv_map_feature is None:
+        return None  # pragma: no cover
+
+    switch_cond, comp_true, comp_false = node.inputs
+    switch_cond, _ = broadcast_arrays(switch_cond, comp_true)
+    # In this case we could replace by a MeasurableIfElse
+    if switch_cond.type.ndim == 0:
+        return None
+    subt_comp_true = comp_true[switch_cond]
+    subt_comp_false = comp_false[~switch_cond]
+
+    # We check if each subtensored branch could be measured directly
+    valued_rvs = rv_map_feature.rv_values.keys()
+    subt_comps = assume_measured_ir_outputs(valued_rvs, [subt_comp_true, subt_comp_false])
+    if not all(var.owner and isinstance(var.owner.op, MeasurableVariable) for var in subt_comps):
+        return None
+
+    return [measurable_lazy_switch_mixture(switch_cond, *subt_comps)]
+
+
 measurable_ir_rewrites_db.register(
     "find_measurable_index_mixture",
     find_measurable_index_mixture,
@@ -471,6 +523,14 @@ measurable_ir_rewrites_db.register(
 measurable_ir_rewrites_db.register(
     "find_measurable_switch_mixture",
     find_measurable_switch_mixture,
+    "basic",
+    "mixture",
+)
+
+# We only want to run this once, after the MeasurableEquilibrium is done
+logprob_rewrites_db.register(
+    "find_measurable_lazy_switch_mixture",
+    out2in(find_measurable_lazy_switch_mixture),
     "basic",
     "mixture",
 )
