@@ -507,6 +507,8 @@ def find_measurable_lazy_switch_mixture(fgraph, node):
     # We check if each subtensored branch could be measured directly
     valued_rvs = rv_map_feature.rv_values.keys()
     subt_comps = assume_measured_ir_outputs(valued_rvs, [subt_comp_true, subt_comp_false])
+    print("")
+    pytensor.dprint(subt_comps)
     if not all(var.owner and isinstance(var.owner.op, MeasurableVariable) for var in subt_comps):
         return None
 

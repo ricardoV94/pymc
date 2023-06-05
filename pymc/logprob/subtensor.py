@@ -15,11 +15,15 @@ from typing import Optional
 
 from pytensor import tensor as pt
 from pytensor.graph import node_rewriter
+from pytensor.tensor.elemwise import Elemwise
 from pytensor.tensor.random.rewriting import local_subtensor_rv_lift
+from pytensor.tensor.rewriting.subtensor import local_subtensor_lift
+from pytensor.tensor.subtensor import AdvancedSubtensor, AdvancedSubtensor1
 
 from pymc.logprob.rewriting import (
     PreserveRVMappings,
     inc_subtensor_ops,
+    subtensor_ops,
     measurable_ir_rewrites_db,
 )
 from pymc.logprob.utils import indices_from_subtensor
@@ -69,8 +73,46 @@ def incsubtensor_rv_replace(fgraph, node):
     return [base_rv_var]
 
 
+@node_rewriter(subtensor_ops)
+def subtensor_lift(fgraph, node):
+    """Lift subtensor Ops through Elemwise operations"""
+    rv_map_feature: Optional[PreserveRVMappings] = getattr(fgraph, "preserve_rv_mappings", None)
+
+    if rv_map_feature is None:
+        return None  # pragma: no cover
+
+    op = node.op
+    base_rv_var, *raw_indices = node.inputs
+
+    # Don't lift through valued RVs
+    if base_rv_var in rv_map_feature.rv_values:
+        return None
+
+    if not isinstance(base_rv_var.owner.op, Elemwise):
+        return None
+
+    indices = indices_from_subtensor(getattr(node.op, "idx_list", None), raw_indices)
+    # Only allow slice or boolean AdvancedSubtensors (integers can broadcast)
+    # TODO: We could
+    if isinstance(op, (AdvancedSubtensor, AdvancedSubtensor1)) and any(index.dtype == int for index in indices):
+        return None
+
+
+
+    # Create a new value variable with the raw_indices `idx` set to `data`
+    value_var = rv_map_feature.rv_values[rv_var]
+    new_value_var = pt.set_subtensor(value_var[idx], data)
+    rv_map_feature.update_rv_maps(rv_var, new_value_var, base_rv_var)
+
+    # Return the `RandomVariable` being indexed
+    return [base_rv_var]
+
+
+
+
 # These rewrites push random/measurable variables "down", making them closer to
 # (or eventually) the graph outputs.  Often this is done by lifting other `Op`s
 # "up" through the random/measurable variables and into their inputs.
-measurable_ir_rewrites_db.register("subtensor_lift", local_subtensor_rv_lift, "basic")
+measurable_ir_rewrites_db.register("unary_subtensor_lift", local_subtensor_lift, "basic")
+measurable_ir_rewrites_db.register("rv_subtensor_lift", local_subtensor_rv_lift, "basic")
 measurable_ir_rewrites_db.register("incsubtensor_lift", incsubtensor_rv_replace, "basic")

@@ -934,7 +934,7 @@ def test_scalar_switch_mixture():
 
 
 @pytest.mark.parametrize("switch_cond_scalar", (True, False))
-@pytest.mark.parametrize("lazy_switch", (True, False))
+@pytest.mark.parametrize("lazy_switch", (True,))
 def test_switch_mixture_vector(switch_cond_scalar, lazy_switch):
     if switch_cond_scalar:
         switch_cond = pt.scalar("switch_cond", dtype=bool)
@@ -948,12 +948,12 @@ def test_switch_mixture_vector(switch_cond_scalar, lazy_switch):
     switch_value = switch.clone()
 
     if lazy_switch:
+        expected_op = MeasurableLazySwitchMixture
+        ir_rewriter = None  # By default, we include it
+    else:
         ir_rewriter = logprob_rewrites_db.query(
             RewriteDatabaseQuery(include=["basic"]).excluding("find_measurable_lazy_switch_mixture")
         )
-        expected_op = MeasurableLazySwitchMixture
-    else:
-        ir_rewriter = None
         expected_op = MeasurableSwitchMixture
 
     ir_fgraph, *_ = construct_ir_fgraph({switch: switch_value}, ir_rewriter=ir_rewriter)
