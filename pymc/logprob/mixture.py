@@ -513,6 +513,18 @@ def find_measurable_lazy_switch_mixture(fgraph, node):
     return [measurable_lazy_switch_mixture(switch_cond, *subt_comps)]
 
 
+@_logprob.register(MeasurableLazySwitchMixture)
+def logprob_lazy_switch_mixture(op, values, switch_cond, subt_comp_true, subt_comp_false, **kwargs):
+    [value] = values
+    logp = pt.empty_like(value)
+    not_switch_cond = ~switch_cond
+    value_true = value[switch_cond]
+    value_false = value[not_switch_cond]
+    logp = pt.set_subtensor(logp[switch_cond], _logprob_helper(subt_comp_true, value_true))
+    logp = pt.set_subtensor(logp[not_switch_cond], _logprob_helper(subt_comp_false, value_false))
+    return logp
+
+
 measurable_ir_rewrites_db.register(
     "find_measurable_index_mixture",
     find_measurable_index_mixture,
