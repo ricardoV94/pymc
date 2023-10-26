@@ -28,3 +28,25 @@ for attr in az.plots.__all__:
     obj = getattr(az.plots, attr)
     if not attr.startswith("__"):
         setattr(sys.modules[__name__], attr, obj)
+
+DEPRECATED_PLOTS_ALIASES = dict(
+    autocorrplot="plot_autocorr",
+    forestplot="plot_forest",
+    kdeplot="plot_kde",
+    energyplot="plot_energy",
+    densityplot="plot_density",
+    pairplot="plot_pair",
+    traceplot="plot_trace",
+    compareplot="plot_compare",
+)
+
+
+def __getattr__(name):
+    if name in DEPRECATED_PLOTS_ALIASES:
+        new_name = DEPRECATED_PLOTS_ALIASES[name]
+        raise ImportError(
+            f"The function `{name}` from PyMC was an alias for `{new_name}` from "
+            f"ArviZ. It was removed in PyMC 4.0. "
+            f"Switch to `pymc.{new_name}` or `arviz.{new_name}`."
+        )
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
