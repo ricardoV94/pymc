@@ -54,6 +54,7 @@ from pymc.logprob import *
 from pymc.model.core import *
 from pymc.model.transform.conditioning import do, observe
 from pymc.model_graph import model_to_graphviz, model_to_networkx
+from pymc.plots import DEPRECATED_PLOTS_ALIASES
 from pymc.pytensorf import *
 from pymc.sampling import *
 from pymc.smc import *
@@ -62,3 +63,14 @@ from pymc.tuning import *
 from pymc.variational import *
 
 __version__ = _version.get_versions()["version"]
+
+
+def __getattr__(name):
+    if name in DEPRECATED_PLOTS_ALIASES:
+        new_name = DEPRECATED_PLOTS_ALIASES[name]
+        raise ImportError(
+            f"The function `{name}` from PyMC was an alias for `{new_name}` from "
+            f"ArviZ. It was removed in PyMC 4.0. "
+            f"Switch to `pymc.{new_name}` or `arviz.{new_name}`."
+        )
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
