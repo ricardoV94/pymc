@@ -272,21 +272,6 @@ def _make_nice_attr_error(oldcode: str, newcode: str):
     return fn
 
 
-class _class_or_instancemethod(classmethod):
-    """Allow a method to be called both as a classmethod and an instancemethod,
-    giving priority to the instancemethod.
-
-    This is used to allow extracting information from the signature of a SymbolicRandomVariable
-    which may be provided either as a class attribute or as an instance attribute.
-
-    Adapted from https://stackoverflow.com/a/28238047
-    """
-
-    def __get__(self, instance, type_):
-        descr_get = super().__get__ if instance is None else self.__func__.__get__
-        return descr_get(instance, type_)
-
-
 class SymbolicRandomVariable(OpFromGraph):
     """Symbolic Random Variable
 
@@ -343,37 +328,40 @@ class SymbolicRandomVariable(OpFromGraph):
         else:
             return _parse_gufunc_signature(params_signature)
 
-    @_class_or_instancemethod
-    @property
-    def ndims_params(cls_or_self) -> Sequence[int] | None:
+    @staticmethod
+    def _ndims_params_from_signature(signature: str) -> Sequence[int]:
         """Number of core dimensions of the distribution's parameters."""
-        signature = cls_or_self.signature
-        if signature is None:
-            return None
-        inputs_signature, _ = cls_or_self._parse_params_signature(signature)
+        inputs_signature, _ = SymbolicRandomVariable._parse_params_signature(signature)
         return [len(sig) for sig in inputs_signature]
 
-    @_class_or_instancemethod
+    @classmethod
     @property
-    def ndim_supp(cls_or_self) -> int | None:
+    def ndims_params(cls) -> Sequence[int] | None:
+        signature = cls.signature
+        if signature is None:
+            return None
+        return cls._ndims_params_from_signature(signature)
+
+    @staticmethod
+    def _ndim_supp_from_signature(signature: str) -> int:
+        _, outputs_params_signature = SymbolicRandomVariable._parse_params_signature(signature)
+        return max(len(out_sig) for out_sig in outputs_params_signature)
+
+    @classmethod
+    @property
+    def ndim_supp(cls) -> int | None:
         """Number of support dimensions of the RandomVariable
 
         (0 for scalar, 1 for vector, ...)
         """
-        signature = cls_or_self.signature
+        signature = cls.signature
         if signature is None:
             return None
-        _, outputs_params_signature = cls_or_self._parse_params_signature(signature)
-        return max(len(out_sig) for out_sig in outputs_params_signature)
+        return cls._ndim_supp_from_signature(signature)
 
-    @_class_or_instancemethod
-    @property
-    def default_output(cls_or_self) -> int | None:
-        signature = cls_or_self.signature
-        if signature is None:
-            return None
-
-        _, outputs_signature = cls_or_self._parse_signature(signature)
+    @staticmethod
+    def _default_output_from_signature(signature: str) -> int | None:
+        _, outputs_signature = SymbolicRandomVariable._parse_signature(signature)
 
         # If there is a single non `[rng]` outputs, that is the default one!
         candidate_default_output = [
@@ -383,6 +371,14 @@ class SymbolicRandomVariable(OpFromGraph):
             return candidate_default_output[0]
         else:
             return None
+
+    @classmethod
+    @property
+    def default_output(cls) -> int | None:
+        signature = cls.signature
+        if signature is None:
+            return None
+        return cls._default_output_from_signature(signature)
 
     @staticmethod
     def get_idxs(signature: str) -> tuple[tuple[int], int | None, tuple[int]]:
@@ -406,10 +402,17 @@ class SymbolicRandomVariable(OpFromGraph):
         **kwargs,
     ):
         """Initialize a SymbolicRandomVariable class."""
-        if "signature" in kwargs:
-            self.signature = kwargs.pop("signature")
+        signature = kwargs.pop("signature", None)
+        if signature is not None:
+            self.signature = signature
+            # Override class properties with instance properties
+            self.ndims_params = self._ndims_params_from_signature(signature)
+            self.ndim_supp = self._ndim_supp_from_signature(self.signature)
+            self.default_output = self._default_output_from_signature(self.signature)
 
-        if "ndim_supp" in kwargs:
+        elif "ndim_supp" in kwargs:
+            # For backwards compatibility we allow passing ndim_supp without signature
+            # This is the only variable that PyMC absolutely needs to work with SymbolicRandomVariables
             self.ndim_supp = kwargs.pop("ndim_supp")
 
         if self.ndim_supp is None:
