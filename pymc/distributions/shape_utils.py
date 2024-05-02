@@ -28,7 +28,8 @@ import numpy as np
 
 from pytensor import config
 from pytensor import tensor as pt
-from pytensor.graph.basic import Variable
+from pytensor.graph import vectorize_graph
+from pytensor.graph.basic import Variable, ancestors, variable_depends_on
 from pytensor.graph.op import Op, compute_test_value
 from pytensor.raise_op import Assert
 from pytensor.tensor.random.op import RandomVariable
@@ -563,3 +564,26 @@ def implicit_size_from_params(
             arrays_are_shapes=True,
         )
     )
+
+
+def batch_random_graph(vars: Sequence[TensorVariable], batch_shape) -> Sequence[TensorVariable]:
+    """Batch a graph by replacing all RandomVariable with batched versions."""
+
+    from pymc.distributions.distribution import SymbolicRandomVariable
+
+    # Find root RandomVariables. Replacing these by batch variants in `vectorize_graph`
+    # will automatically batch all downstream nodes.
+    all_rvs = {
+        rv
+        for rv in ancestors(vars)
+        if rv.owner and isinstance(rv.owner.op, RandomVariable | SymbolicRandomVariable)
+    }
+    root_rvs = {rv for rv in all_rvs if not variable_depends_on(rv, all_rvs - {rv})}
+
+    replacements = {rv: change_dist_size(rv, batch_shape, expand=True) for rv in root_rvs}
+    other_vars = [var for var in vars if var not in root_rvs]
+    batch_remaining_vars = iter(vectorize_graph(other_vars, replacements))
+    batch_vars = [
+        replacements[var] if var in root_rvs else next(batch_remaining_vars) for var in vars
+    ]
+    return batch_vars

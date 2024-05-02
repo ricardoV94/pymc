@@ -27,8 +27,9 @@ from pytensor.tensor.shape import SpecifyShape
 
 import pymc as pm
 
-from pymc import ShapeError
+from pymc import Deterministic, Normal, ShapeError, draw
 from pymc.distributions.shape_utils import (
+    batch_random_graph,
     broadcast_dist_samples_shape,
     change_dist_size,
     convert_dims,
@@ -654,3 +655,21 @@ def test_get_support_shape(
             assert (f() == expected_support_shape).all()
             with pytest.raises(AssertionError, match="support_shape does not match"):
                 inferred_support_shape.eval()
+
+
+def test_batch_random_graph():
+    with pm.Model() as m:
+        x = Normal("x", mu=[-1, 1])
+        # p = Beta("p", alpha=1, beta=100)
+        # w = Deterministic("w", pt.as_tensor([1-p, p]))
+        # y = NormalMixture("y", w=w, mu=x, shape=(5,))  # Vectorization of OpFromGraph not implemented
+        sigma = Deterministic("sigma", pt.exp(x))
+        y = Normal("y", sigma=sigma, size=(5, 2))
+
+    batched_vars = batch_random_graph(m.basic_RVs + m.deterministics, batch_shape=(4, 100))
+    pytensor.dprint(batched_vars)
+    batched_draws = draw(batched_vars)
+
+    for draws, model_var in zip(batched_draws, (m.basic_RVs + m.deterministics)):
+        assert draws.shape == (4, 100, *tuple(model_var.shape.eval()))
+        assert np.unique(draws).size == draws.shape
