@@ -51,6 +51,7 @@ from pymc.logprob.abstract import (
     _logprob_helper,
 )
 from pymc.logprob.rewriting import measurable_ir_rewrites_db
+from pymc.logprob.utils import filter_measurable_variables
 from pymc.math import logdiffexp
 from pymc.pytensorf import constant_fold
 
@@ -65,10 +66,6 @@ class MeasurableMaxDiscrete(MeasurableOpMixin, Max):
 
 @node_rewriter([Max])
 def find_measurable_max(fgraph: FunctionGraph, node: Apply) -> list[TensorVariable] | None:
-    rv_map_feature = getattr(fgraph, "preserve_rv_mappings", None)
-    if rv_map_feature is None:
-        return None  # pragma: no cover
-
     if isinstance(node.op, MeasurableMax | MeasurableMaxDiscrete):
         return None
 
@@ -77,7 +74,7 @@ def find_measurable_max(fgraph: FunctionGraph, node: Apply) -> list[TensorVariab
     if base_var.owner is None:
         return None
 
-    if not rv_map_feature.request_measurable(node.inputs):
+    if not filter_measurable_variables(node.inputs):
         return None
 
     # We allow Max of RandomVariables or Elemwise of univariate RandomVariables
@@ -130,6 +127,7 @@ measurable_ir_rewrites_db.register(
 @_logprob.register(MeasurableMax)
 def max_logprob(op, values, base_rv, **kwargs):
     r"""Compute the log-likelihood graph for the `Max` operation."""
+    # TODO: Make this separate commit
     (value,) = values
 
     base_rv_shape = constant_fold(tuple(base_rv.shape), raise_not_constant=False)

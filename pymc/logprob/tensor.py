@@ -54,8 +54,7 @@ from pytensor.tensor.random.rewriting import (
 
 from pymc.logprob.abstract import MeasurableOp, MeasurableOpMixin, _logprob, _logprob_helper
 from pymc.logprob.rewriting import (
-    PreserveRVMappings,
-    assume_measured_ir_outputs,
+    assume_valued_outputs,
     measurable_ir_rewrites_db,
 )
 from pymc.logprob.utils import check_potential_measurability, replace_rvs_by_values
@@ -215,7 +214,7 @@ def find_measurable_stacks(fgraph, node) -> list[TensorVariable] | None:
     if not all(check_potential_measurability([base_var], valued_rvs) for base_var in base_vars):
         return None
 
-    base_vars = assume_measured_ir_outputs(valued_rvs, base_vars)
+    base_vars = assume_valued_outputs(valued_rvs, base_vars)
     if not all(var.owner and isinstance(var.owner.op, MeasurableOp) for var in base_vars):
         return None
 

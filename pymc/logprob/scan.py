@@ -57,7 +57,6 @@ from pytensor.updates import OrderedUpdates
 from pymc.logprob.abstract import MeasurableOp, MeasurableOpMixin, _logprob
 from pymc.logprob.basic import conditional_logp
 from pymc.logprob.rewriting import (
-    PreserveRVMappings,
     construct_ir_fgraph,
     inc_subtensor_ops,
     logprob_rewrites_db,
