@@ -693,20 +693,20 @@ def test_not_implemented_discrete_rv_transform():
 
 def test_negated_discrete_rv_transform():
     p = 0.7
-    rv = -Bernoulli.dist(p=p)
+    rv = -Bernoulli.dist(p=p, shape=(4,))
     vv = rv.type()
-    logp_fn = pytensor.function([vv], logp(rv, vv))
 
     # A negated Bernoulli has pmf {p if x == -1; 1-p if x == 0; 0 otherwise}
-    assert logp_fn(-2) == -np.inf
-    np.testing.assert_allclose(logp_fn(-1), np.log(p))
-    np.testing.assert_allclose(logp_fn(0), np.log(1 - p))
-    assert logp_fn(1) == -np.inf
+    logp_fn = pytensor.function([vv], logp(rv, vv))
+    np.testing.assert_allclose(
+        logp_fn([-2, -1, 0, 1]), [-np.inf, np.log(p), np.log(1 - p), -np.inf]
+    )
 
-    # Logcdf and icdf not supported yet
-    for func in (logcdf, icdf):
-        with pytest.raises(NotImplementedError):
-            func(rv, 0)
+    logcdf_fn = pytensor.function([vv], logcdf(rv, vv))
+    np.testing.assert_allclose(logcdf_fn([-2, -1, 0, 1]), [-np.inf, np.log(p), 0, 0])
+
+    with pytest.raises(NotImplementedError):
+        icdf(rv, [-2, -1, 0, 1])
 
 
 def test_shifted_discrete_rv_transform():
