@@ -36,6 +36,7 @@ from pytensor.graph.basic import (
 from pytensor.graph.fg import FunctionGraph, Output
 from pytensor.graph.op import HasInnerGraph
 from pytensor.graph.traversal import explicit_graph_inputs, graph_inputs, walk
+from pytensor.link import IncompatibleSharedVariableWarning
 from pytensor.scalar.basic import Cast
 from pytensor.scan.op import Scan
 from pytensor.tensor.basic import _as_tensor_variable
@@ -955,14 +956,18 @@ def compile(
     mode = get_mode(mode)
     opt_qry = mode.provided_optimizer.including("random_make_inplace", check_parameter_opt)
     mode = Mode(linker=mode.linker, optimizer=opt_qry)
-    pytensor_function = pytensor.function(
-        inputs,
-        outputs,
-        updates={**rng_updates, **kwargs.pop("updates", {})},
-        mode=mode,
-        **kwargs,
-    )
-    return pytensor_function
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            category=IncompatibleSharedVariableWarning,
+        )
+        return pytensor.function(
+            inputs,
+            outputs,
+            updates={**rng_updates, **kwargs.pop("updates", {})},
+            mode=mode,
+            **kwargs,
+        )
 
 
 def constant_fold(
