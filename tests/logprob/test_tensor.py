@@ -291,14 +291,33 @@ def test_measurable_join_multivariate(
     )
 
 
-def test_join_mixed_ndim_supp():
-    base1_rv = pt.random.normal(size=3, name="base1")
-    base2_rv = pt.random.dirichlet(np.ones(3), name="base2")
-    y_rv = pt.concatenate((base1_rv, base2_rv), axis=0)
+@pytest.mark.parametrize("axis", (0, -1))
+def test_join_mixed_ndim_supp(axis):
+    alpha = [1, 5, .1]
+    base1_rv = pt.random.normal(size=(2, 3), name="base1")
+    base2_rv = pt.random.dirichlet(alpha, size=(2,), name="base2")
+    y_rv = pt.concatenate((base1_rv, base2_rv), axis=axis)
 
     y_vv = y_rv.clone()
-    with pytest.raises(ValueError, match="Joined logps have different number of dimensions"):
-        logp(y_rv, y_vv)
+    y_logp = logp(y_rv, y_vv)
+
+    base1_test = [0, 0.5, 1]
+    base2_test = [.1, .3, .6]
+    if axis == 0:
+        y_vv_test = np.stack([base1_test, base1_test, base2_test, base2_test], axis=0)
+        assert y_vv_test.shape == (4, 3)
+    else:
+        concat_test = np.concatenate([base1_test, base2_test])
+        y_vv_test = np.concatenate([concat_test, concat_test], axis=0)
+        assert y_vv_test.shape == (2, 6)
+
+    y_logp_eval = y_logp.eval({y_vv: y_vv_test})
+    assert y_logp_eval.shape == (4,) if axis == 0 else (2, 2)
+
+    np.testing.assert_allclose(
+        y_logp_eval.sum(),
+        2 * (st.norm.logpdf(base1_test).sum() + st.dirichlet.logpdf(base2_test, alpha)),
+    )
 
 
 @pytensor.config.change_flags(cxx="")

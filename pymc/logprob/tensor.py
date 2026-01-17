@@ -127,18 +127,24 @@ def logprob_join(op, values, axis, *base_rvs, **kwargs):
         for base_var, split_value in base_rvs_to_split_values.items()
     ]
 
-    if len({logp.ndim for logp in logps}) != 1:
-        raise ValueError(
-            "Joined logps have different number of dimensions, this can happen when "
-            "joining univariate and multivariate distributions",
-        )
+    # If we have mixed univariate and multivariate densities, we need to sum the univariate components
+    # So we can stack everything together again
+    min_logp_ndim = min(logp.ndim for logp in logps)
+    for i, logp in enumerate(logps):
+        dims_to_reduce = logp.ndim - min_logp_ndim
+        if dims_to_reduce > 0:
+            logps[i] = logp.sum(range(-dims_to_reduce, 0))
+
+    # (3,2) + (3,2) axis = 1, -> (3,2) then concat to (3,2)  # ?
+    # (3,2) + (3,2) axis = 0 -> (6,2) then concat to (6,)  # Axis on independent dimensions
+
 
     # If the stacked variables depend on each other, we have to replace them by the respective values
     logps = replace_rvs_by_values(logps, rvs_to_values=base_rvs_to_split_values)
 
     # Make axis positive and adjust for multivariate logp fewer dimensions to the right
     axis = pt.switch(axis >= 0, axis, value.ndim + axis)
-    axis = pt.minimum(axis, logps[0].ndim - 1)
+    axis = pt.minimum(axis, min_logp_ndim - 1)
     join_logprob = pt.concatenate(
         [pt.atleast_1d(logp) for logp in logps],
         axis=axis,
