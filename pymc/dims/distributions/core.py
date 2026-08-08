@@ -34,7 +34,15 @@ from pymc import SymbolicRandomVariable, modelcontext
 from pymc.dims.distributions.transforms import DimTransform, log_odds_transform, log_transform
 from pymc.distributions.distribution import _support_point, support_point
 from pymc.distributions.shape_utils import DimsWithEllipsis, convert_dims_with_ellipsis
-from pymc.logprob.abstract import MeasurableOp, _icdf, _logccdf, _logcdf, _logprob
+from pymc.logprob.abstract import (
+    MeasurableOp,
+    _icdf,
+    _logccdf,
+    _logcdf,
+    _logprob,
+    request_logprob,
+    supp_axes,
+)
 from pymc.logprob.rewriting import measurable_ir_rewrites_db
 from pymc.logprob.tensor import MeasurableDimShuffle
 from pymc.logprob.utils import filter_measurable_variables
@@ -122,53 +130,51 @@ def _to_tensor(op: MeasurableXTensorFromTensor, value: XTensorVariable) -> Tenso
 
 
 def _to_xtensor(
-    op: MeasurableXTensorFromTensor, value: XTensorVariable, var: TensorVariable
+    op: MeasurableXTensorFromTensor, value: XTensorVariable, var: TensorVariable, rv=None
 ) -> XTensorVariable:
     extra_value_dims = [dim for dim in value.dims if dim not in op.dims]
     # Dims that are unique to the value and not present in the op, are placed on the left by _align_value_dims
     all_dims = (*extra_value_dims, *op.dims)
-    # core_dims are not present in the generated variable, exclude them
-    if op.core_dims is None:
-        # The core_dims of the inner rv are on the right
-        var_dims = all_dims[: var.ndim]
-    else:
+    # The dims the density is over are not present in the generated variable, exclude them
+    axes = None if rv is None else supp_axes(rv)
+    if op.core_dims is not None:
         # We inferred where the core_dims are!
         var_dims = tuple(d for d in all_dims if d not in op.core_dims)
+    elif axes is not None:
+        # `_to_tensor` laid the value out as `all_dims`, so the rv's axes index it directly
+        core_dims = {all_dims[axis] for axis in axes}
+        var_dims = tuple(d for d in all_dims if d not in core_dims)
+    else:
+        # Nothing said otherwise, so assume the core_dims of the inner rv are on the right
+        var_dims = all_dims[: var.ndim]
     return xtensor_from_tensor(var, dims=var_dims)
 
 
 @_logprob.register(MeasurableXTensorFromTensor)
 def measurable_xtensor_from_tensor_logprob(op, values, rv, **kwargs):
-    tensor_values = tuple(_to_tensor(op, v) for v in values)
-    rv_logps_tensor = _logprob(rv.owner.op, tensor_values, *rv.owner.inputs, **kwargs)
-    if not isinstance(rv_logps_tensor, tuple | list):
-        rv_logps_tensor = (rv_logps_tensor,)
-    rv_logps = tuple(
-        _to_xtensor(op, value, rv_logp)
-        for value, rv_logp in zip(values, rv_logps_tensor, strict=True)
-    )
-    return rv_logps[0] if len(rv_logps) == 1 else rv_logps
+    [value] = values
+    return _to_xtensor(op, value, request_logprob(rv, _to_tensor(op, value), **kwargs), rv)
 
 
 @_logcdf.register(MeasurableXTensorFromTensor)
 def measurable_xtensor_from_tensor_logcdf(op, value, rv, **kwargs):
     tensor_value = _to_tensor(op, value)
     rv_logcdf = _logcdf(rv.owner.op, tensor_value, *rv.owner.inputs, **kwargs)
-    return _to_xtensor(op, value, rv_logcdf)
+    return _to_xtensor(op, value, rv_logcdf, rv)
 
 
 @_logccdf.register(MeasurableXTensorFromTensor)
 def measurable_xtensor_from_tensor_logccdf(op, value, rv, **kwargs):
     tensor_value = _to_tensor(op, value)
     rv_logcdf = _logccdf(rv.owner.op, tensor_value, *rv.owner.inputs, **kwargs)
-    return _to_xtensor(op, value, rv_logcdf)
+    return _to_xtensor(op, value, rv_logcdf, rv)
 
 
 @_icdf.register(MeasurableXTensorFromTensor)
 def measurable_xtensor_from_tensor_icdf(op, value, rv, **kwargs):
     tensor_value = _to_tensor(op, value)
     icdf = _icdf(rv.owner.op, tensor_value, *rv.owner.inputs, **kwargs)
-    return _to_xtensor(op, value, icdf)
+    return _to_xtensor(op, value, icdf, rv)
 
 
 measurable_ir_rewrites_db.register(
