@@ -24,7 +24,13 @@ from pytensor.graph.fg import FunctionGraph
 from pytensor.graph.rewriting.basic import GraphRewriter, in2out, node_rewriter
 from pytensor.tensor.variable import TensorVariable
 
-from pymc.logprob.abstract import MeasurableOp, ValuedRV, _logprob, valued_rv
+from pymc.logprob.abstract import (
+    MeasurableOp,
+    ValuedRV,
+    _logprob,
+    request_logprob,
+    valued_rv,
+)
 from pymc.logprob.rewriting import cleanup_ir_rewrites_db
 from pymc.logprob.transforms import Transform
 from pymc.logprob.utils import get_related_valued_nodes
@@ -84,7 +90,7 @@ def transformed_value_logprob(op, values, *rv_outs, use_jacobian=True, **kwargs)
     """
     rv_op = rv_outs[0].owner.op
     rv_inputs = rv_outs[0].owner.inputs
-    logprobs = _logprob(rv_op, values, *rv_inputs, **kwargs)
+    logprobs = request_logprob(rv_outs[0], *values, **kwargs)
 
     if not isinstance(logprobs, Sequence):
         logprobs = [logprobs]

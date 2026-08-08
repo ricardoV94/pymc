@@ -47,7 +47,13 @@ from pytensor.tensor import TensorVariable
 from pytensor.tensor.math import ceil, clip, floor, round_half_to_even
 from pytensor.tensor.variable import TensorConstant
 
-from pymc.logprob.abstract import MeasurableElemwise, _logccdf_helper, _logcdf, _logprob
+from pymc.logprob.abstract import (
+    MeasurableElemwise,
+    _logccdf_helper,
+    _logcdf,
+    _logprob,
+    request_logprob,
+)
 from pymc.logprob.rewriting import measurable_ir_rewrites_db
 from pymc.logprob.utils import CheckParameterValue, filter_measurable_variables
 
@@ -108,7 +114,7 @@ def clip_logprob(op, values, base_rv, lower_bound, upper_bound, **kwargs):
     base_rv_op = base_rv.owner.op
     base_rv_inputs = base_rv.owner.inputs
 
-    logprob = _logprob(base_rv_op, (value,), *base_rv_inputs, **kwargs)
+    logprob = request_logprob(base_rv, value, **kwargs)
     logcdf = _logcdf(base_rv_op, value, *base_rv_inputs, **kwargs)
 
     if base_rv_op.name:

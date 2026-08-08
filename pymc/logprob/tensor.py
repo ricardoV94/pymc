@@ -50,8 +50,8 @@ from pymc.logprob.abstract import (
     MeasurableOp,
     ValuedRV,
     _logprob,
-    _logprob_helper,
     promised_valued_rv,
+    request_logprob,
 )
 from pymc.logprob.rewriting import (
     assume_valued_outputs,
@@ -85,7 +85,7 @@ def logprob_make_vector(op, values, *base_rvs, **kwargs):
         base_rv.name = f"base_rv[{i}]"
         value.name = f"value[{i}]"
 
-    logps = [_logprob_helper(base_rv, value) for base_rv, value in base_rvs_to_values.items()]
+    logps = [request_logprob(base_rv, value) for base_rv, value in base_rvs_to_values.items()]
 
     # If the stacked variables depend on each other, we have to replace them by the respective values
     logps = replace_rvs_by_values(logps, rvs_to_values=base_rvs_to_values)
@@ -119,7 +119,7 @@ def logprob_join(op, values, *base_rvs, **kwargs):
 
     base_rvs_to_split_values = dict(zip(base_rvs, split_values))
     logps = [
-        _logprob_helper(base_var, split_value)
+        request_logprob(base_var, split_value)
         for base_var, split_value in base_rvs_to_split_values.items()
     ]
 
@@ -217,7 +217,7 @@ def logprob_split(op: MeasurableSplit, values, x, splits, **kwargs):
     # Reverse the effects of split on the value variable
     join_value = pt.join(axis, *values)
 
-    join_logp = _logprob_helper(x, join_value)
+    join_logp = request_logprob(x, join_value)
 
     reduced_dims = join_value.ndim - join_logp.ndim
 
@@ -264,7 +264,7 @@ def logprob_dimshuffle(op: MeasurableDimShuffle, values, base_var, **kwargs):
     undo_ds = [original_shuffle.index(i) for i in range(len(original_shuffle))]
     value = value.dimshuffle(undo_ds)
 
-    raw_logp = _logprob_helper(base_var, value)
+    raw_logp = request_logprob(base_var, value)
 
     # Re-apply original dimshuffle, ignoring any support dimensions consumed by
     # the logprob function. This assumes that support dimensions are always in
